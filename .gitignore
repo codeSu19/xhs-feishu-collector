@@ -24,6 +24,9 @@ screenshot/
 .DS_Store
 Thumbs.db
 
+# GitHub 上传指南（只留本地）
+GITHUB_GUIDE.md
+
 # 临时文件
 *.log
 *.tmp
