@@ -129,6 +129,7 @@ python main.py
 | 命令 | 作用 |
 |------|------|
 | `python main.py` | 采集 + 分析，一步到位 |
+| `python main.py --check` | 一键自检所有连接 |
 | `python main.py --login-xhs` | 浏览器登录小红书（仅首次） |
 | `python main.py --list` | 列出多维表格中的所有表 |
 

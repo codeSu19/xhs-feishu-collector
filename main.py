@@ -750,11 +750,22 @@ def fetch_with_playwright(url: str) -> str | None:
 
             context.close()
 
+            # 质量检查：内容必须有足够中文字符（排除登录墙、空白页）
+            def quality_ok(text):
+                cn_chars = len(re.findall(r'[一-鿿]', text))
+                return cn_chars >= 30
+
             if title and body:
                 result = f"{title}\n\n{body}"
-                return result[:5000]
+                if quality_ok(result):
+                    return result[:5000]
+                else:
+                    print(f"    内容质量不达标（中文{len(re.findall(r'[一-鿿]', result))}字），丢弃")
             elif body and len(body) > 80:
-                return body[:5000]
+                if quality_ok(body):
+                    return body[:5000]
+                else:
+                    print(f"    内容质量不达标，丢弃")
             elif title:
                 return f"[仅标题] {title}"
             return None
@@ -813,6 +824,19 @@ def fetch_note_content(url: str) -> str | None:
         return None
 
     url = str(url).strip()
+
+    # 短链预处理：xhslink.com → xiaohongshu.com 真实地址
+    if "xhslink.com" in url:
+        try:
+            print(f"    解析短链...")
+            resp = requests.head(url, allow_redirects=True, timeout=10,
+                                 headers={"User-Agent": MOBILE_UA})
+            real_url = resp.url
+            if real_url != url and "xiaohongshu.com" in real_url:
+                print(f"    重定向 → {real_url[:80]}...")
+                url = real_url
+        except Exception:
+            pass  # 解析失败就用原链接
 
     # 方式 1：Playwright（已登录浏览器）
     if FETCH_METHOD == "playwright":
@@ -1063,11 +1087,140 @@ def process_all():
 
 
 # ============================================================
+# 自检
+# ============================================================
+
+def check_all():
+    """一键自检所有连接：飞书 / AI / Playwright。"""
+    print("=" * 60)
+    print("🔍 系统自检")
+    print("=" * 60)
+
+    results = []
+
+    # 1. 飞书 Token
+    print("\n[1] 飞书 Token ...", end=" ")
+    try:
+        token = get_tenant_token()
+        print(f"✅ {token[:20]}...")
+        results.append(("飞书 Token", True, ""))
+    except Exception as e:
+        print(f"❌ {e}")
+        results.append(("飞书 Token", False, str(e)))
+
+    # 2. 多维表格
+    print("[2] 多维表格 ...", end=" ")
+    try:
+        tables = list_tables()
+        if tables:
+            tid = get_table_id()
+            print(f"✅ {tables[0].name} ({tid})")
+            results.append(("多维表格", True, tid))
+        else:
+            print("⚠️  无数据表")
+            results.append(("多维表格", False, "无数据表"))
+    except Exception as e:
+        print(f"❌ {e}")
+        results.append(("多维表格", False, str(e)))
+
+    # 3. 群聊
+    print("[3] 群聊查找 ...", end=" ")
+    try:
+        token = get_tenant_token()
+        chat_id = find_chat_id(token, GROUP_CHAT_NAME)
+        if chat_id:
+            print(f"✅ {GROUP_CHAT_NAME} ({chat_id})")
+            results.append(("群聊", True, chat_id))
+
+            # 4. 消息读取
+            print("[4] 消息读取 ...", end=" ")
+            try:
+                msgs = list_recent_messages(token, chat_id, limit=1)
+                print(f"✅ ({len(msgs)} 条)")
+                results.append(("消息读取", True, ""))
+            except Exception as e:
+                print(f"❌ {e}")
+                results.append(("消息读取", False, str(e)))
+        else:
+            print(f"⚠️  未找到群「{GROUP_CHAT_NAME}」，跳过后面的检查")
+            results.append(("群聊", False, "未找到"))
+    except Exception as e:
+        print(f"❌ {e}")
+        results.append(("群聊", False, str(e)))
+
+    # 5. AI
+    print("[5] AI ({}/{}) ...".format(AI_PROVIDER, AI_MODEL), end=" ")
+    try:
+        _, call_fn = _get_ai_client()
+        resp = call_fn("回复：OK")
+        if resp and len(resp) > 0:
+            print(f"✅")
+            results.append(("AI 连接", True, ""))
+        else:
+            print("⚠️  返回为空")
+            results.append(("AI 连接", False, "返回为空"))
+    except Exception as e:
+        print(f"❌ {e}")
+        results.append(("AI 连接", False, str(e)))
+
+    # 6. Playwright
+    if FETCH_METHOD == "playwright":
+        print("[6] Playwright ...", end=" ")
+        try:
+            from playwright.sync_api import sync_playwright
+            import os as _os
+            _os.makedirs(PLAYWRIGHT_USER_DATA, exist_ok=True)
+            with sync_playwright() as p:
+                ctx = p.chromium.launch_persistent_context(
+                    user_data_dir=PLAYWRIGHT_USER_DATA,
+                    headless=True,
+                    args=["--no-sandbox"],
+                )
+                # 检查是否已登录（看 cookie 里有没有小红书相关域）
+                cookies = ctx.cookies()
+                xhs_cookies = [c for c in cookies if "xiaohongshu" in c.get("domain", "")]
+                ctx.close()
+                if xhs_cookies:
+                    print(f"✅ 已登录（{len(xhs_cookies)} 个小书 cookie）")
+                    results.append(("Playwright", True, ""))
+                else:
+                    print("⚠️  未登录，请运行 --login-xhs")
+                    results.append(("Playwright", False, "未登录"))
+        except ImportError:
+            print("⚠️  未安装 playwright")
+            results.append(("Playwright", False, "未安装"))
+        except Exception as e:
+            print(f"❌ {e}")
+            results.append(("Playwright", False, str(e)))
+
+    # 汇总
+    print("\n" + "=" * 60)
+    print("📊 自检结果")
+    print("=" * 60)
+    all_ok = True
+    for name, ok, detail in results:
+        status = "✅" if ok else ("⚠️" if "未" in detail else "❌")
+        detail_str = f" — {detail}" if detail else ""
+        print(f"  {status} {name}{detail_str}")
+        if not ok and "未" not in detail:  # "未安装"/"未登录"/"未找到" 不算致命错误
+            all_ok = False
+
+    if all_ok:
+        print("\n✅ 所有核心组件正常，可以运行 python main.py")
+    else:
+        print("\n⚠️  部分组件异常，请根据上面的错误信息排查")
+
+    print("=" * 60)
+
+
+# ============================================================
 # 入口
 # ============================================================
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] in ("--list", "--discover", "-l"):
+    if len(sys.argv) > 1 and sys.argv[1] in ("--check", "--diagnose", "-d"):
+        check_all()
+    elif len(sys.argv) > 1 and sys.argv[1] in ("--list", "--discover", "-l"):
         list_tables()
     elif len(sys.argv) > 1 and sys.argv[1] in ("--collect", "--msg", "-c"):
         collect_messages()
