@@ -27,6 +27,9 @@ Thumbs.db
 # GitHub 上传指南（只留本地）
 GITHUB_GUIDE.md
 
+# 日志
+logs/
+
 # 临时文件
 *.log
 *.tmp

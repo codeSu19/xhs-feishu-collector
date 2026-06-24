@@ -132,6 +132,16 @@ python main.py
 | `python main.py --check` | 一键自检所有连接 |
 | `python main.py --login-xhs` | 浏览器登录小红书（仅首次） |
 | `python main.py --list` | 列出多维表格中的所有表 |
+| `python main.py --check` | 一键自检所有连接 |
+
+### 定时自动运行（可选）
+
+```powershell
+# 以管理员身份打开 PowerShell，运行：
+.\setup_schedule.ps1
+```
+
+默认每天上午 10:00 自动执行。分析完成后自动发通知到飞书群。修改时间：`taskschd.msc` → 找到 `XHS-Feishu-Collector` → 触发器 → 编辑。
 
 ---
 

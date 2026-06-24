@@ -999,8 +999,21 @@ def process_all():
 
     # 1. 获取待处理记录
     records = get_pending_records()
+    tid = get_table_id()
+    table_url = f"https://my.feishu.cn/base/{BITABLE_APP_TOKEN}?table={tid}" if tid else ""
+
     if not records:
         print("\n✅ 没有待处理的笔记，表格已是最新状态。")
+        # 即使没有笔记也通知，证明程序按时执行了
+        now = datetime.now().strftime("%m-%d %H:%M")
+        msg = f"📊 笔记采集日报\n\n时间：{now}\n状态：无待处理笔记\n\n一切正常 ✅"
+        if table_url:
+            msg += f"\n\n{table_url}"
+        print(f"\n📬 发送通知到飞书群...")
+        if send_group_message(msg):
+            print(f"   ✅ 已通知")
+        else:
+            print(f"   ⚠️ 通知失败")
         return
 
     print(f"\n📋 发现 {len(records)} 条待处理笔记，开始分析...\n")
@@ -1077,18 +1090,63 @@ def process_all():
             time.sleep(1)
 
     # 3. 输出汇总
+    total = len(records)
     print()
     print("=" * 60)
     print(f"📊 处理完成！")
     print(f"   成功: {success_count} 条")
     print(f"   失败: {fail_count} 条")
-    print(f"   总计: {len(records)} 条")
+    print(f"   总计: {total} 条")
     print("=" * 60)
+
+    # 4. 通知飞书群
+    now = datetime.now().strftime("%m-%d %H:%M")
+    if total > 0:
+        msg = f"📊 笔记分析完成\n\n时间：{now}\n成功：{success_count} 条\n失败：{fail_count} 条\n总计：{total} 条\n\n打开飞书表格查看 👇"
+    else:
+        msg = f"📊 笔记采集日报\n\n时间：{now}\n状态：无待处理笔记\n\n一切正常 ✅"
+    if table_url:
+        msg += f"\n{table_url}"
+    print(f"\n📬 发送通知到飞书群...")
+    if send_group_message(msg):
+        print(f"   ✅ 已通知")
+    else:
+        print(f"   ⚠️ 通知失败")
 
 
 # ============================================================
 # 自检
 # ============================================================
+
+def send_group_message(text: str) -> bool:
+    """发送文本消息到飞书采集群。"""
+    try:
+        token = get_tenant_token()
+        chat_id = find_chat_id(token, GROUP_CHAT_NAME)
+        if not chat_id:
+            print("  ⚠️ 发送通知失败：未找到群聊")
+            return False
+
+        url = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+        body = {
+            "receive_id": chat_id,
+            "msg_type": "text",
+            "content": json.dumps({"text": text}),
+        }
+        resp = requests.post(url, headers=headers, json=body, timeout=15)
+        data = resp.json()
+        if data.get("code") != 0:
+            print(f"  ⚠️ 发送通知失败: {data}")
+            return False
+        return True
+    except Exception as e:
+        print(f"  ⚠️ 发送通知异常: {e}")
+        return False
+
 
 def check_all():
     """一键自检所有连接：飞书 / AI / Playwright。"""
